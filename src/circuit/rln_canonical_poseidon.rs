@@ -394,21 +394,12 @@ mod test {
             },
             TestSuite {
                 merkle_depth: 32
-            },
-            TestSuite {
-                merkle_depth: 16
-            },
-            TestSuite {
-                merkle_depth: 24
-            },
-            TestSuite{
-                merkle_depth: 32
-            },
+            }
         ]
     }
 
     #[test]
-    fn test_rln_bn_canonical() {
+    fn test_rln_random() {
         use sapling_crypto::bellman::pairing::bn256::Bn256;
         let cases = cases::<Bn256>();
         for case in cases.iter() {

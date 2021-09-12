@@ -6,8 +6,7 @@ To learn more about RLN, please visit: https://medium.com/privacy-scaling-explor
 
 ## TODO: 
 
-The RLN cicrucit need to be changed to support the canonical Poseidon hasher & circuit (WIP)
-
+Refactor
 
 ## Generate Test Keys
 
