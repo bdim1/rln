@@ -1,7 +1,7 @@
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
-    use rln::poseidon_canonical::Poseidon;
-    use rln::circuit::poseidon_canonical::PoseidonCircuit;
+    use rln::poseidon::Poseidon;
+    use rln::circuit::poseidon::PoseidonCircuit;
     use sapling_crypto::bellman::pairing::bn256::{Bn256, Fr};
     use sapling_crypto::bellman::pairing::ff::{PrimeField, to_hex};
     use sapling_crypto::circuit::test::TestConstraintSystem;

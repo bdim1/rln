@@ -1,10 +1,7 @@
 use crate::circuit::poseidon::PoseidonCircuit;
-use crate::circuit::poseidon_canonical::{PoseidonCircuit as PoseidonCanonicalCircuit};
 use crate::circuit::rln::{RLNCircuit, RLNInputs};
-use crate::circuit::rln_canonical_poseidon::{RLNCircuit as RLNCanonicalPoseidonCircuit};
 use crate::merkle::MerkleTree;
 use crate::poseidon::{Poseidon as PoseidonHasher, PoseidonParams};
-use crate::poseidon_canonical::{Poseidon as PoseidonCanonoicalHasher};
 
 use rand::{Rand, SeedableRng, XorShiftRng};
 use sapling_crypto::bellman::groth16::*;
@@ -18,7 +15,6 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use crate::public::RLN;
-use crate::rln_canonical_poseidon::{RLN as RLNCanonical};
 
 pub struct ProverBenchResult {
     pub prover_key_size: usize,
@@ -35,10 +31,9 @@ impl ProverBenchResult {
 }
 
 pub fn run_rln_prover_bench<E: Engine>(
-    merkle_depth: usize,
-    poseidon_params: PoseidonParams<E>,
+    merkle_depth: usize
 ) -> ProverBenchResult {
-    RLNTest::new(merkle_depth, Some(poseidon_params)).run_prover_bench()
+    RLNTest::<E>::new(merkle_depth).run_prover_bench()
 }
 
 pub struct RLNTest<E>
@@ -46,14 +41,6 @@ where
     E: Engine,
 {
     rln: RLN<E>,
-    merkle_depth: usize,
-}
-
-pub struct RLNTestCanonical<E>
-where
-    E: Engine,
-{
-    rln: RLNCanonical<E>,
     merkle_depth: usize,
 }
 
@@ -78,9 +65,9 @@ where
         }
     }
 
-    pub fn new(merkle_depth: usize, poseidon_params: Option<PoseidonParams<E>>) -> RLNTest<E> {
+    pub fn new(merkle_depth: usize) -> RLNTest<E> {
         RLNTest {
-            rln: RLN::new(merkle_depth, poseidon_params),
+            rln: RLN::new(merkle_depth),
             merkle_depth,
         }
     }
@@ -149,7 +136,7 @@ where
     }
 
     pub fn synthesize(&self) -> usize {
-        let hasher = PoseidonCircuit::new(self.rln.poseidon_params());
+        let hasher = PoseidonCircuit::<E>::new();
         let inputs = self.valid_inputs();
         let circuit = RLNCircuit::<E> {
             inputs: inputs.clone(),
@@ -191,7 +178,7 @@ where
             self.rln
                 .verify(proof.as_slice(), raw_public_inputs.as_slice())
                 .unwrap(),
-            true
+            "invalid proof"
         );
 
         let mut circuit_parameters: Vec<u8> = Vec::new();

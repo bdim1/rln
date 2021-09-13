@@ -231,7 +231,7 @@ where
     E: Engine,
 {
     pub inputs: RLNInputs<E>,
-    pub hasher: PoseidonCircuit<E>,
+    pub hasher: PoseidonCircuit<E>
 }
 
 impl<E> Circuit<E> for RLNCircuit<E>
@@ -242,6 +242,8 @@ where
         // 1. Part
         // Membership constraints
         // root == merkle_proof(auth_path, preimage_of_leaf)
+
+        let mut hasher = self.hasher.clone();
 
         let root = num::AllocatedNum::alloc(cs.namespace(|| "root"), || {
             let value = self.inputs.root.clone();
@@ -256,8 +258,7 @@ where
 
         // identity is a leaf of membership tree
 
-        let identity = self
-            .hasher
+        let identity = hasher
             .alloc(cs.namespace(|| "identity"), vec![preimage.clone()])?;
 
         // accumulator up to the root
@@ -283,8 +284,7 @@ where
                 &position,
             )?;
 
-            acc = self
-                .hasher
+            acc = hasher
                 .alloc(cs.namespace(|| "hash couple"), vec![xl, xr])?;
         }
 
@@ -312,8 +312,7 @@ where
 
         // a_1 == h(a_0, epoch)
 
-        let a_1 = self
-            .hasher
+        let a_1 = hasher
             .alloc(cs.namespace(|| "a_1"), vec![a_0.clone(), epoch])?;
 
         let share_x = num::AllocatedNum::alloc(cs.namespace(|| "share x"), || {
@@ -349,8 +348,7 @@ where
 
         // nullifier == hash(a_1)
 
-        let nullifier_calculated = self
-            .hasher
+        let nullifier_calculated = hasher
             .alloc(cs.namespace(|| "calculated nullifier"), vec![a_1.clone()])?;
 
         let nullifier = num::AllocatedNum::alloc(cs.namespace(|| "nullifier"), || {
@@ -382,37 +380,21 @@ mod test {
     use sapling_crypto::bellman::pairing::bn256::Bn256;
     use sapling_crypto::bellman::pairing::Engine;
 
-    struct TestSuite<E: Engine> {
-        merkle_depth: usize,
-        poseidon_parameters: PoseidonParams<E>,
+    struct TestSuite {
+        merkle_depth: usize
     }
 
-    fn cases<E: Engine>() -> Vec<TestSuite<E>> {
+    fn cases<E: Engine>() -> Vec<TestSuite> {
         vec![
             TestSuite {
-                merkle_depth: 3,
-                poseidon_parameters: PoseidonParams::new(8, 55, 3, None, None, None),
+                merkle_depth: 3
             },
             TestSuite {
-                merkle_depth: 24,
-                poseidon_parameters: PoseidonParams::new(8, 55, 3, None, None, None),
+                merkle_depth: 24
             },
             TestSuite {
-                merkle_depth: 32,
-                poseidon_parameters: PoseidonParams::new(8, 55, 3, None, None, None),
-            },
-            TestSuite {
-                merkle_depth: 16,
-                poseidon_parameters: PoseidonParams::new(8, 33, 3, None, None, None),
-            },
-            TestSuite {
-                merkle_depth: 24,
-                poseidon_parameters: PoseidonParams::new(8, 33, 3, None, None, None),
-            },
-            TestSuite {
-                merkle_depth: 32,
-                poseidon_parameters: PoseidonParams::new(8, 33, 3, None, None, None),
-            },
+                merkle_depth: 32
+            }
         ]
     }
 
@@ -422,47 +404,18 @@ mod test {
         let cases = cases::<Bn256>();
         for case in cases.iter() {
             let rln_test = bench::RLNTest::<Bn256>::new(
-                case.merkle_depth,
-                Some(case.poseidon_parameters.clone()),
+                case.merkle_depth
             );
             let num_constraints = rln_test.synthesize();
             let result = rln_test.run_prover_bench();
             println!(
-                "bn256, t: {}, rf: {}, rp: {}, merkle depth: {}",
-                case.poseidon_parameters.width(),
-                case.poseidon_parameters.full_round_half_len() * 2,
-                case.poseidon_parameters.partial_round_len(),
+                "bn256, merkle depth: {}",
                 case.merkle_depth,
             );
             println!("number of constatins:\t{}", num_constraints);
             println!("prover key size:\t{}", result.prover_key_size);
             println!("prover time:\t{}", result.prover_time);
         }
-    }
-
-    #[test]
-    fn test_rln_first_test_case() {
-        use sapling_crypto::bellman::pairing::bn256::Bn256;
-        let cases = cases::<Bn256>();
-        let case = cases.first().unwrap();
-        
-        let rln_test = bench::RLNTest::<Bn256>::new(
-            case.merkle_depth,
-            Some(case.poseidon_parameters.clone()),
-        );
-        let num_constraints = rln_test.synthesize();
-        let result = rln_test.run_prover_bench();
-        println!(
-            "bn256, t: {}, rf: {}, rp: {}, merkle depth: {}",
-            case.poseidon_parameters.width(),
-            case.poseidon_parameters.full_round_half_len() * 2,
-            case.poseidon_parameters.partial_round_len(),
-            case.merkle_depth,
-        );
-        println!("number of constatins:\t{}", num_constraints);
-        println!("prover key size:\t{}", result.prover_key_size);
-        println!("prover time:\t{}", result.prover_time);
-        
     }
 
 

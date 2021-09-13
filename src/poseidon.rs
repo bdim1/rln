@@ -1,7 +1,11 @@
 use blake2::{Blake2s, Digest};
 
-use sapling_crypto::bellman::pairing::ff::{Field, PrimeField, PrimeFieldRepr};
+use sapling_crypto::bellman::pairing::ff::{Field, PrimeField, PrimeFieldRepr, to_hex};
 use sapling_crypto::bellman::pairing::Engine;
+
+use crate::poseidon_utils::{
+    get_mds_poseidon_bn254_x5_2, get_mds_poseidon_bn254_x5_3, get_rounds_poseidon_bn254_x5_2, get_rounds_poseidon_bn254_x5_3
+};
 
 #[derive(Clone)]
 pub struct PoseidonParams<E: Engine> {
@@ -20,35 +24,32 @@ pub struct Poseidon<E: Engine> {
 }
 
 impl<E: Engine> PoseidonParams<E> {
-    pub fn new(
-        rf: usize,
-        rp: usize,
-        t: usize,
-        round_constants: Option<Vec<E::Fr>>,
-        mds_matrix: Option<Vec<E::Fr>>,
-        seed: Option<Vec<u8>>,
-    ) -> PoseidonParams<E> {
-        let seed = match seed {
-            Some(seed) => seed,
-            None => b"".to_vec(),
-        };
+    pub fn new(t: usize) -> PoseidonParams<E> {
+        let mut params = PoseidonParams::<E>::empty();
 
-        let _round_constants = match round_constants {
-            Some(round_constants) => round_constants,
-            None => PoseidonParams::<E>::generate_constants(b"drlnhdsc", seed.clone(), rf + rp),
-        };
-        assert_eq!(rf + rp, _round_constants.len());
+      // t can be only 2 or 3
+        params.t = t;
+        params.rf = 8;
+        if t == 2 {
+            params.rp = 56; 
+            params.round_constants = get_rounds_poseidon_bn254_x5_2::<E::Fr>();
+            params.mds_matrix = get_mds_poseidon_bn254_x5_2::<E::Fr>();
+        } else if t == 3 {
+            params.rp = 57;
+            params.round_constants = get_rounds_poseidon_bn254_x5_3::<E::Fr>();
+            params.mds_matrix = get_mds_poseidon_bn254_x5_3::<E::Fr>();
+        }
 
-        let _mds_matrix = match mds_matrix {
-            Some(mds_matrix) => mds_matrix,
-            None => PoseidonParams::<E>::generate_mds_matrix(b"drlnhdsm", seed.clone(), t),
-        };
+        params
+    }
+
+    pub fn empty() -> PoseidonParams::<E> {
         PoseidonParams {
-            rf,
-            rp,
-            t,
-            round_constants: _round_constants,
-            mds_matrix: _mds_matrix,
+            rf:0,
+            rp:0,
+            t:0,
+            round_constants: Vec::new(),
+            mds_matrix: Vec::new()
         }
     }
 
@@ -81,58 +82,31 @@ impl<E: Engine> PoseidonParams<E> {
         self.mds_matrix.clone()
     }
 
-    pub fn generate_mds_matrix(persona: &[u8; 8], seed: Vec<u8>, t: usize) -> Vec<E::Fr> {
-        let v: Vec<E::Fr> = PoseidonParams::<E>::generate_constants(persona, seed, t * 2);
-        let mut matrix: Vec<E::Fr> = Vec::with_capacity(t * t);
-        for i in 0..t {
-            for j in 0..t {
-                let mut tmp = v[i];
-                tmp.add_assign(&v[t + j]);
-                let entry = tmp.inverse().unwrap();
-                matrix.insert((i * t) + j, entry);
-            }
-        }
-        matrix
-    }
-
-    pub fn generate_constants(persona: &[u8; 8], seed: Vec<u8>, len: usize) -> Vec<E::Fr> {
-        let mut constants: Vec<E::Fr> = Vec::new();
-        let mut source = seed.clone();
-        loop {
-            let mut hasher = Blake2s::new();
-            hasher.input(persona);
-            hasher.input(source);
-            source = hasher.result().to_vec();
-            let mut candidate_repr = <E::Fr as PrimeField>::Repr::default();
-            candidate_repr.read_le(&source[..]).unwrap();
-            if let Ok(candidate) = E::Fr::from_repr(candidate_repr) {
-                constants.push(candidate);
-                if constants.len() == len {
-                    break;
-                }
-            }
-        }
-        constants
-    }
 }
 
 impl<E: Engine> Poseidon<E> {
-    pub fn new(params: PoseidonParams<E>) -> Poseidon<E> {
+    pub fn new() -> Poseidon<E> {
         Poseidon {
             round: 0,
             state: Vec::new(),
-            params,
+            params: PoseidonParams::<E>::empty()
         }
     }
 
     fn new_state(&mut self, inputs: Vec<E::Fr>) {
-        let t = self.t();
-        self.state = inputs.clone();
-        self.state.resize(t, E::Fr::zero());
+        let mut new_state = vec![E::Fr::zero()];
+
+        for num in inputs.iter() {
+            let c = num.clone();
+            new_state.push(c);
+        }
+
+        self.state = new_state;
     }
 
     fn clear(&mut self) {
         self.round = 0;
+        self.params = PoseidonParams::<E>::empty();
     }
 
     fn t(&self) -> usize {
@@ -144,59 +118,38 @@ impl<E: Engine> Poseidon<E> {
     }
 
     pub fn hash(&mut self, inputs: Vec<E::Fr>) -> E::Fr {
-        self.new_state(inputs);
-        loop {
-            self.round(self.round);
-            self.round += 1;
-            if self.round == self.params.total_rounds() {
-                break;
-            }
+        let num_inputs = inputs.len();
+        if num_inputs < 1 || num_inputs > 2  {
+            panic!("Invalid number of inputs");
         }
+        let t = num_inputs + 1;
+        
+        self.params = PoseidonParams::<E>::new(t);
+        self.new_state(inputs);
+
+        for round in 0..self.params.total_rounds() {
+            let a1 = self.params.full_round_half_len();
+            let a2 = a1 + self.params.partial_round_len();
+    
+            self.add_round_constants(round);
+
+            if round < a1 || round >= a2 {
+                self.apply_quintic_sbox(true);
+            } else {
+                self.apply_quintic_sbox(false);
+            }
+            self.mul_mds_matrix(); 
+        }
+
         let r = self.result();
         self.clear();
         r
     }
 
-    fn round(&mut self, round: usize) {
-        let a1 = self.params.full_round_half_len();
-        let a2 = a1 + self.params.partial_round_len();
-        let a3 = self.params.total_rounds();
-        if round < a1 {
-            self.full_round(round);
-        } else if round >= a1 && round < a2 {
-            self.partial_round(round);
-        } else if round >= a2 && round < a3 {
-            if round == a3 - 1 {
-                self.full_round_last();
-            } else {
-                self.full_round(round);
-            }
-        } else {
-            panic!("should not be here")
-        }
-    }
-
-    fn full_round(&mut self, round: usize) {
-        self.add_round_constants(round);
-        self.apply_quintic_sbox(true);
-        self.mul_mds_matrix();
-    }
-
-    fn full_round_last(&mut self) {
-        let last_round = self.params.total_rounds() - 1;
-        self.add_round_constants(last_round);
-        self.apply_quintic_sbox(true);
-    }
-
-    fn partial_round(&mut self, round: usize) {
-        self.add_round_constants(round);
-        self.apply_quintic_sbox(false);
-        self.mul_mds_matrix();
-    }
-
     fn add_round_constants(&mut self, round: usize) {
-        for (_, b) in self.state.iter_mut().enumerate() {
-            let c = self.params.round_constants[round];
+        let width = self.t();
+        for (i, b) in self.state.iter_mut().enumerate() {
+            let c = self.params.round_constants[round * width + i];
             b.add_assign(&c);
         }
     }
@@ -231,15 +184,21 @@ impl<E: Engine> Poseidon<E> {
 fn test_poseidon_hash() {
     use sapling_crypto::bellman::pairing::bn256;
     use sapling_crypto::bellman::pairing::bn256::{Bn256, Fr};
-    let params = PoseidonParams::<Bn256>::new(8, 55, 3, None, None, None);
-    let mut hasher = Poseidon::<Bn256>::new(params);
+    use sapling_crypto::bellman::pairing::ff::{PrimeField, to_hex};
+    let mut hasher = Poseidon::<Bn256>::new();
     let input1: Vec<Fr> = ["0"].iter().map(|e| Fr::from_str(e).unwrap()).collect();
     let r1: Fr = hasher.hash(input1.to_vec());
-    let input2: Vec<Fr> = ["0", "0"]
+    let input2: Vec<Fr> = ["1", "0"]
         .iter()
         .map(|e| Fr::from_str(e).unwrap())
         .collect();
     let r2: Fr = hasher.hash(input2.to_vec());
     // println!("{:?}", r1);
-    assert_eq!(r1, r2, "just to see if internal state resets");
+
+    let hash1 = to_hex(&r1);
+    let hash2 = to_hex(&r2);
+    println!("hash (0): 0x{}", hash1);
+    println!("hash (1, 0): 0x{}", hash2);
+    // assert_eq!(r1, r2, "just to see if internal state resets");
+
 }

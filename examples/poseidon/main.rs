@@ -1,53 +1,37 @@
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
-    use sapling_crypto::bellman::pairing::bn256::Bn256;
-    test_keys::export::<Bn256>();
+    use sapling_crypto::bellman::pairing::ff::{PrimeField, to_hex};
+    use sapling_crypto::bellman::pairing::bn256::{Bn256, Fr};
+
+    use rln::poseidon::Poseidon;
+
+    let mut hasher = Poseidon::<Bn256>::new();
+    let input1: Vec<Fr> = ["0"].iter().map(|e| Fr::from_str(e).unwrap()).collect();
+    let r1: Fr = hasher.hash(input1.to_vec());
+    let input2: Vec<Fr> = ["1", "0"]
+        .iter()
+        .map(|e| Fr::from_str(e).unwrap())
+        .collect();
+    let r2: Fr = hasher.hash(input2.to_vec());
+    // println!("{:?}", r1);
+    let input3: Vec<Fr> = ["1", "2"]
+        .iter()
+        .map(|e| Fr::from_str(e).unwrap())
+        .collect();
+    let r3: Fr = hasher.hash(input3.to_vec());
+    
+
+    let hash1 = to_hex(&r1);
+    let hash2 = to_hex(&r2);
+    let hash3 = to_hex(&r3);
+
+    println!("hash (0): 0x{}", hash1);
+    println!("hash (1, 0): 0x{}", hash2);
+    println!("hash (1, 2): 0x{}", hash3);
+
 }
 
 #[cfg(target_arch = "wasm32")]
 fn main() {
     panic!("should not be run in wasm");
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-mod test_keys {
-    use sapling_crypto::bellman::pairing::Engine;
-    pub fn export<E: Engine>() {
-        use sapling_crypto::bellman::pairing::ff::{PrimeField, to_hex};
-        use sapling_crypto::bellman::pairing::bn256::{Bn256, Fr};
-
-        use rln::poseidon::Poseidon;
-        use rln::poseidon::PoseidonParams;
-
-        // let inputs: Vec<Fr> = ["0", "0"]
-        //     .iter()
-        //     .map(|e| Fr::from_str(e).unwrap())
-        //     .collect();
-
-            let mut inputs: Vec<Fr> = Vec::new();
-            inputs.push(Fr::from_str("1").unwrap());
-            inputs.push(Fr::from_str("0").unwrap());
-
-        let poseidon_params = PoseidonParams::<Bn256>::new(8, 55, 3, None, None, None);
-        let mut poseidon_hasher = Poseidon::<Bn256>::new(poseidon_params.clone());
-
-        let hashed = poseidon_hasher.hash(inputs);
-        let hashed_str = to_hex(&hashed);
-        println!("hashed str 0x{}", hashed_str)
-
-
-
-        // let mut rng = XorShiftRng::from_seed([0x3dbe6258, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
-        // let hasher = PoseidonCircuit::new(poseidon_params.clone());
-        // let circuit = RLNCircuit::<E> {
-        //     inputs: RLNInputs::<E>::empty(merkle_depth),
-        //     hasher: hasher.clone(),
-        // };
-        // let parameters = generate_random_parameters(circuit, &mut rng).unwrap();
-        // let mut file_vk = File::create("verifier.key").unwrap();
-        // let vk = parameters.vk.clone();
-        // vk.write(&mut file_vk).unwrap();
-        // let mut file_paramaters = File::create("parameters.key").unwrap();
-        // parameters.write(&mut file_paramaters).unwrap();
-    }
 }

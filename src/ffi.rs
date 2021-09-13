@@ -1,4 +1,5 @@
 use crate::{circuit::rln, public::RLN};
+
 use bellman::pairing::bn256::Bn256;
 use std::slice;
 
@@ -34,7 +35,7 @@ pub extern "C" fn new_circuit_from_params(
     ctx: *mut *mut RLN<Bn256>,
 ) -> bool {
     let buffer = <&[u8]>::from(unsafe { &*parameters_buffer });
-    let rln = match RLN::<Bn256>::new_with_raw_params(merkle_depth, buffer, None) {
+    let rln = match RLN::<Bn256>::new_with_raw_params(merkle_depth, buffer) {
         Ok(rln) => rln,
         Err(_) => return false,
     };
@@ -51,6 +52,7 @@ pub extern "C" fn generate_proof(
     let rln = unsafe { &*ctx };
     let input_data = <&[u8]>::from(unsafe { &*input_buffer });
     let mut output_data: Vec<u8> = Vec::new();
+    
     match rln.generate_proof(input_data, &mut output_data) {
         Ok(proof_data) => proof_data,
         Err(_) => return false,
@@ -133,8 +135,7 @@ mod tests {
 
     fn rln_test() -> bench::RLNTest<Bn256> {
         let merkle_depth = merkle_depth();
-        let poseidon_params = PoseidonParams::<Bn256>::new(8, 55, 3, None, None, None);
-        let rln_test = bench::RLNTest::<Bn256>::new(merkle_depth, Some(poseidon_params));
+        let rln_test = bench::RLNTest::<Bn256>::new(merkle_depth);
         rln_test
     }
 

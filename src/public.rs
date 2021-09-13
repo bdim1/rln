@@ -17,24 +17,20 @@ where
     E: Engine,
 {
     circuit_parameters: Parameters<E>,
-    poseidon_params: PoseidonParams<E>,
-    merkle_depth: usize,
+    merkle_depth: usize
 }
 
 impl<E> RLN<E>
 where
     E: Engine,
 {
-    fn default_poseidon_params() -> PoseidonParams<E> {
-        PoseidonParams::<E>::new(8, 55, 3, None, None, None)
-    }
 
-    fn new_circuit(merkle_depth: usize, poseidon_params: PoseidonParams<E>) -> Parameters<E> {
+    fn new_circuit(merkle_depth: usize) -> Parameters<E> {
         let mut rng = XorShiftRng::from_seed([0x3dbe6258, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
         let inputs = RLNInputs::<E>::empty(merkle_depth);
         let circuit = RLNCircuit::<E> {
             inputs,
-            hasher: PoseidonCircuit::new(poseidon_params.clone()),
+            hasher: PoseidonCircuit::<E>::new(),
         };
         generate_random_parameters(circuit, &mut rng).unwrap()
     }
@@ -42,47 +38,33 @@ where
     fn new_with_params(
         merkle_depth: usize,
         circuit_parameters: Parameters<E>,
-        poseidon_params: PoseidonParams<E>,
     ) -> RLN<E> {
         RLN {
             circuit_parameters,
-            poseidon_params,
-            merkle_depth,
+            merkle_depth
         }
     }
 
-    pub fn poseidon_params(&self) -> PoseidonParams<E> {
-        self.poseidon_params.clone()
-    }
+    pub fn new(merkle_depth: usize) -> RLN<E> {
 
-    pub fn new(merkle_depth: usize, poseidon_params: Option<PoseidonParams<E>>) -> RLN<E> {
-        let poseidon_params = match poseidon_params {
-            Some(params) => params,
-            None => Self::default_poseidon_params(),
-        };
-        let circuit_parameters = Self::new_circuit(merkle_depth, poseidon_params.clone());
-        Self::new_with_params(merkle_depth, circuit_parameters, poseidon_params)
+        let circuit_parameters = Self::new_circuit(merkle_depth);
+        Self::new_with_params(merkle_depth, circuit_parameters)
     }
 
     pub fn new_with_raw_params<R: Read>(
         merkle_depth: usize,
-        raw_circuit_parameters: R,
-        poseidon_params: Option<PoseidonParams<E>>,
+        raw_circuit_parameters: R
     ) -> io::Result<RLN<E>> {
         let circuit_parameters = Parameters::<E>::read(raw_circuit_parameters, true)?;
-        let poseidon_params = match poseidon_params {
-            Some(params) => params,
-            None => Self::default_poseidon_params(),
-        };
+
         Ok(Self::new_with_params(
             merkle_depth,
-            circuit_parameters,
-            poseidon_params,
+            circuit_parameters
         ))
     }
 
     pub fn hasher(&self) -> PoseidonHasher<E> {
-        PoseidonHasher::new(self.poseidon_params.clone())
+        PoseidonHasher::<E>::new()
     }
 
     pub fn hash<R: Read, W: Write>(&self, input: R, n: usize, mut output: W) -> io::Result<()> {
@@ -100,13 +82,14 @@ where
         let mut rng = ChaChaRng::new_unseeded();
         let inputs = RLNInputs::<E>::read(input)?;
         assert_eq!(self.merkle_depth, inputs.merkle_depth());
-        let circuit_hasher = PoseidonCircuit::new(self.poseidon_params.clone());
+        let circuit_hasher = PoseidonCircuit::<E>::new();
         let circuit = RLNCircuit {
             inputs: inputs.clone(),
             hasher: circuit_hasher.clone(),
         };
         let proof = create_random_proof(circuit, &self.circuit_parameters, &mut rng).unwrap();
         write_uncompressed_proof(proof, &mut output)?;
+
         // proof.write(&mut w).unwrap();
         Ok(())
     }

@@ -28,7 +28,7 @@ impl RLNWasm {
     pub fn new(merkle_depth: usize) -> RLNWasm {
         set_panic_hook();
         RLNWasm {
-            api: RLN::<Bn256>::new(merkle_depth, None),
+            api: RLN::<Bn256>::new(merkle_depth),
         }
     }
 
@@ -38,7 +38,7 @@ impl RLNWasm {
         raw_circuit_parameters: &[u8],
     ) -> Result<RLNWasm, JsValue> {
         set_panic_hook();
-        let api = match RLN::new_with_raw_params(merkle_depth, raw_circuit_parameters, None) {
+        let api = match RLN::new_with_raw_params(merkle_depth, raw_circuit_parameters) {
             Ok(api) => api,
             Err(e) => return Err(e.to_string().into()),
         };
@@ -47,11 +47,12 @@ impl RLNWasm {
 
     #[wasm_bindgen]
     pub fn generate_proof(&self, input: &[u8]) -> Result<Vec<u8>, JsValue> {
-        let proof = match self.api.generate_proof(input) {
-            Ok(proof) => proof,
+        let mut output: Vec<u8> = Vec::new();
+        match self.api.generate_proof(input, &mut output) {
+            Ok(_) => (),
             Err(e) => return Err(e.to_string().into()),
         };
-        Ok(proof)
+        Ok(output)
     }
 
     #[wasm_bindgen]
@@ -106,8 +107,7 @@ mod test {
     #[wasm_bindgen_test]
     fn test_rln_wasm() {
         let merkle_depth = 3usize;
-        let poseidon_params = PoseidonParams::<Bn256>::new(8, 55, 3, None, None, None);
-        let rln_test = bench::RLNTest::<Bn256>::new(merkle_depth, Some(poseidon_params));
+        let rln_test = bench::RLNTest::<Bn256>::new(merkle_depth);
 
         let rln_wasm = super::RLNWasm::new(merkle_depth);
 

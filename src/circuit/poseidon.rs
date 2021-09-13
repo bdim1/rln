@@ -1,5 +1,5 @@
 use crate::poseidon::{Poseidon as PoseidonHasher, PoseidonParams};
-use sapling_crypto::bellman::pairing::ff::{Field, PrimeField, PrimeFieldRepr};
+use sapling_crypto::bellman::pairing::ff::{Field, PrimeField, PrimeFieldRepr, to_hex};
 use sapling_crypto::bellman::pairing::Engine;
 use sapling_crypto::bellman::{Circuit, ConstraintSystem, LinearCombination, SynthesisError};
 use sapling_crypto::circuit::{boolean, ecc, num, Assignment};
@@ -159,8 +159,11 @@ where
         self.number == a1 - 1 || self.number == a2 - 1
     }
 
-    pub fn round_constant(&self) -> E::Fr {
-        self.params.round_constant(self.number)
+    pub fn round_constant(&self, i: Option<usize>) -> E::Fr {
+        match i {
+            Some(i) => self.params.round_constant(self.number * self.width() + i),
+            None => self.params.round_constant(self.number)
+        }
     }
 
     pub fn mds_matrix_row(&self, i: usize) -> Vec<E::Fr> {
@@ -218,7 +221,7 @@ where
         assert_eq!(ctx.width(), self.elements.len());
 
         for i in 0..if ctx.is_full_round() { ctx.width() } else { 1 } {
-            let round_constant = ctx.round_constant();
+            let round_constant = ctx.round_constant(Some(i));
             let si = {
                 match self.elements[i].allocated() {
                     Some(an) => an,
@@ -267,9 +270,6 @@ where
     ) -> Result<(), SynthesisError> {
         assert_eq!(ctx.width(), self.elements.len());
 
-        if !ctx.is_last_round() {
-            // skip mds multiplication in last round
-
             let mut new_state: Vec<num::Num<E>> = Vec::new();
             let w = ctx.width();
 
@@ -289,13 +289,13 @@ where
             let in_transition = ctx.in_transition();
             ctx.round_end();
 
-            // add round constants just after mds if
-            // first full round has just ended
-            // or in partial rounds expect the last one.
+            // // add round constants just after mds if
+            // // first full round has just ended
+            // // or in partial rounds expect the last one.
             if in_transition == is_full_round {
                 // add round constants for elements in {1, t}
-                let round_constant = ctx.round_constant();
                 for i in 1..w {
+                    let round_constant = ctx.round_constant(Some(i));
                     let mut constant_as_num = num::Num::<E>::zero();
                     constant_as_num = constant_as_num.add_bool_with_coeff(
                         CS::one(),
@@ -309,10 +309,7 @@ where
             for (s0, s1) in self.elements.iter_mut().zip(new_state) {
                 s0.update_with_num(s1);
             }
-        } else {
-            // terminates hades
-            ctx.round_end();
-        }
+        
         Ok(())
     }
 }
@@ -321,8 +318,8 @@ impl<E> PoseidonCircuit<E>
 where
     E: Engine,
 {
-    pub fn new(params: PoseidonParams<E>) -> Self {
-        Self { params: params }
+    pub fn new() -> Self {
+        Self { params: PoseidonParams::<E>::empty() }
     }
 
     pub fn width(&self) -> usize {
@@ -330,17 +327,30 @@ where
     }
 
     pub fn alloc<CS: ConstraintSystem<E>>(
-        &self,
+        &mut self,
         mut cs: CS,
         input: Vec<num::AllocatedNum<E>>,
     ) -> Result<num::AllocatedNum<E>, SynthesisError> {
-        assert!(input.len() < self.params.width());
+        let num_inputs = input.len();
+        if num_inputs < 1 || num_inputs > 2  {
+            panic!("Invalid number of inputs");
+        }
+        let t = num_inputs + 1;
 
-        let mut elements: Vec<Element<E>> = input
-            .iter()
-            .map(|el| Element::new_from_alloc(el.clone()))
-            .collect();
-        elements.resize(self.width(), Element::new_from_num(num::Num::zero()));
+        self.params = PoseidonParams::<E>::new(t);
+
+        let mut elements: Vec<Element<E>> = vec![Element::new_from_num(num::Num::zero())];
+
+        for num in input.iter() {
+            let c = num.clone();
+            elements.push(Element::new_from_alloc(c));
+        }
+
+        // let mut elements: Vec<Element<E>> = input
+        //     .iter()
+        //     .map(|el| Element::new_from_alloc(el.clone()))
+        //     .collect();
+        // elements.resize(self.width(), Element::new_from_num(num::Num::zero()));
 
         let mut state = State::new(elements);
         let mut ctx = RoundCtx::new(&self.params);
@@ -361,13 +371,12 @@ where
 }
 
 #[test]
-fn test_poseidon_circuit() {
+fn test_poseidon_canonical_circuit() {
     use sapling_crypto::bellman::pairing::bn256::{Bn256, Fr};
     use sapling_crypto::bellman::pairing::ff::{Field, PrimeField, PrimeFieldRepr};
     use sapling_crypto::circuit::test::TestConstraintSystem;
 
     let mut cs = TestConstraintSystem::<Bn256>::new();
-    let params = PoseidonParams::new(8, 55, 3, None, None, None);
 
     let inputs: Vec<Fr> = ["0", "0"]
         .iter()
@@ -383,21 +392,18 @@ fn test_poseidon_circuit() {
         })
         .collect();
 
-    let circuit = PoseidonCircuit::<Bn256>::new(params.clone());
+    let mut circuit = PoseidonCircuit::<Bn256>::new();
     let res_allocated = circuit
         .alloc(cs.namespace(|| "hash alloc"), allocated_inputs)
         .unwrap();
     let result = res_allocated.get_value().unwrap();
-    let mut poseidon = PoseidonHasher::new(params.clone());
+    let mut poseidon = PoseidonHasher::<Bn256>::new();
     let expected = poseidon.hash(inputs);
 
     assert_eq!(result, expected);
     assert!(cs.is_satisfied());
     println!(
-        "number of constraints for (t: {}, rf: {}, rp: {}), {}",
-        params.width(),
-        params.full_round_half_len() * 2,
-        params.partial_round_len(),
+        "number of constraints for {}",
         cs.num_constraints()
     );
 }

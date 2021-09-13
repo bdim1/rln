@@ -3,11 +3,8 @@
 
 pub mod circuit;
 pub mod merkle;
-pub mod merkle_canonical;
 pub mod poseidon;
 pub mod public;
-pub mod rln_canonical_poseidon;
-pub mod poseidon_canonical;
 mod poseidon_utils;
 
 mod utils;
@@ -16,4 +13,4 @@ mod utils;
 pub mod ffi;
 
 #[cfg(target_arch = "wasm32")]
-mod wasm;
+pub mod wasm;
